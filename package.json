@@ -1,0 +1,109 @@
+{
+  "name": "php-security-scanner",
+  "displayName": "PHP Security Scanner",
+  "description": "Une extension VS Code pour détecter les vulnérabilités de sécurité dans le code PHP via taint tracking.",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Linters",
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onLanguage:php",
+    "onCommand:phpSecurityScanner.scan"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "phpSecurityScanner.scan",
+        "title": "PHP Security Scanner: Analyser le Workspace"
+      }
+    ],
+    "configuration": {
+      "title": "PHP Security Scanner",
+      "properties": {
+        "phpSecurityScanner.vulnTypes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "sql_injection",
+              "xss",
+              "rce",
+              "file_inclusion",
+              "auth_bypass",
+              "session_fixation",
+              "insecure_upload"
+            ]
+          },
+          "default": [
+            "sql_injection",
+            "xss",
+            "rce",
+            "file_inclusion",
+            "auth_bypass",
+            "session_fixation",
+            "insecure_upload"
+          ],
+          "description": "Types de vulnérabilités à analyser."
+        },
+        "phpSecurityScanner.includePatterns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "**/*.php"
+          ],
+          "description": "Motifs glob pour inclure les fichiers à analyser (ex. **/*.php)."
+        },
+        "phpSecurityScanner.excludePatterns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "**/vendor/**",
+            "**/node_modules/**"
+          ],
+          "description": "Motifs glob pour exclure les fichiers de l'analyse."
+        },
+        "phpSecurityScanner.rulesFile": {
+          "type": "string",
+          "default": "",
+          "description": "Chemin vers un fichier rules.yaml personnalisé pour les définitions de vulnérabilités."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "test": "mocha -r ts-node/register tests/**/*.test.ts --colors",
+    "test:watch": "mocha -r ts-node/register tests/**/*.test.ts --watch --colors"
+  },
+  "dependencies": {
+    "js-yaml": "^4.1.0",
+    "tree-sitter": "0.21.1",
+    "tree-sitter-php": "^0.22.6",
+    "vscode-uri": "^3.0.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.12",
+    "@types/vscode": "^1.85.0",
+    "@types/mocha": "^10.0.7",
+    "@types/chai": "^4.3.16",
+    "@types/js-yaml": "^4.0.9",
+    "typescript": "^5.4.5",
+    "mocha": "^10.4.0",
+    "chai": "^4.4.1",
+    "ts-node": "^10.9.2"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
