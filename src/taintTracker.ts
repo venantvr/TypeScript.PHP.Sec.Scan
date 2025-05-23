@@ -18,9 +18,33 @@ export class TaintTracker {
         this.vulnerabilities = [];
         this.sanitizedVars = {};
 
-        const loginNodes = tree.rootNode.children.filter(
-            n => n.type === 'function_call_expression' && this.rules.auth_functions.includes(this.getNodeText(n.childForFieldName('function')!))
-        );
+        // Débogage : inspecter les nœuds enfants de rootNode
+        console.log('Root node children:', tree.rootNode.children.map(n => ({
+            type: n.type,
+            text: this.getNodeText(n),
+            function: n.type === 'function_call_expression' ? this.getFunctionName(n) : null
+        })));
+
+        // Chercher function_call_expression dans expression_statement
+        const loginNodes = tree.rootNode.namedChildren
+            .filter(n => n.type === 'expression_statement')
+            .flatMap(n => n.namedChildren)
+            .filter(n => {
+                if (n.type !== 'function_call_expression') return false;
+                const funcName = this.getFunctionName(n);
+                if (!funcName) {
+                    console.log('No function name for node:', this.getNodeText(n), 'children:', n.namedChildren.map(c => ({
+                        type: c.type,
+                        text: this.getNodeText(c)
+                    })));
+                    return false;
+                }
+                const isAuthFunction = this.rules.auth_functions.includes(funcName);
+                console.log(`Checking function: ${funcName}, isAuthFunction: ${isAuthFunction}`);
+                return isAuthFunction;
+            });
+
+        console.log('loginNodes:', loginNodes.map(n => this.getNodeText(n)));
 
         for (const node of loginNodes) {
             if (this.isSessionFixation(node)) {
@@ -39,22 +63,32 @@ export class TaintTracker {
         return this.vulnerabilities;
     }
 
-    private getNodeText(node: SyntaxNode): string {
+    private getNodeText(node: SyntaxNode | null): string {
+        if (!node) return '';
         return this.sourceCode.slice(node.startIndex, node.endIndex).toString('utf-8');
+    }
+
+    private getFunctionName(node: SyntaxNode): string {
+        const funcNode = node.namedChildren.find(c => c.type === 'name');
+        return funcNode ? this.getNodeText(funcNode) : '';
     }
 
     private isSource(node: SyntaxNode): boolean {
         const text = this.getNodeText(node);
+        console.log(`Checking if source: ${text}`);
+        if (node.type === 'subscript_expression' && text.startsWith('$_GET')) {
+            return true;
+        }
         return this.rules.sources.includes(text);
     }
 
     private isFilterCall(node: SyntaxNode): [boolean, string] {
-        const func = node.childForFieldName('function');
-        if (func) {
-            const funcName = this.getNodeText(func);
+        const funcName = this.getFunctionName(node);
+        if (funcName) {
             // Gérer les appels de méthodes statiques (ex. Sanitizer::sanitizeText)
-            if (func.type === 'member_access_expression') {
-                const methodName = func.children.find(c => c.type === 'name')?.text;
+            const funcNode = node.namedChildren.find(c => c.type === 'member_access_expression');
+            if (funcNode) {
+                const methodName = funcNode.children.find(c => c.type === 'name')?.text;
                 if (methodName && methodName === 'sanitizeText') {
                     return [true, 'xss'];
                 }
@@ -107,8 +141,8 @@ export class TaintTracker {
 
     private isSessionFixation(node: SyntaxNode): boolean {
         if (node.type === 'function_call_expression') {
-            const func = node.childForFieldName('function');
-            if (func && this.rules.session_functions.includes(this.getNodeText(func))) {
+            const funcName = this.getFunctionName(node);
+            if (funcName && this.rules.session_functions.includes(funcName)) {
                 return false;
             }
         }
@@ -116,18 +150,35 @@ export class TaintTracker {
     }
 
     private analyzeSink(node: SyntaxNode, filePath: string): void {
-        const funcNode = node.childForFieldName('function');
-        if (!funcNode) return;
-        const funcName = this.getNodeText(funcNode);
+        const funcName = this.getFunctionName(node);
+        if (!funcName) {
+            console.log('No function name in analyzeSink for node:', this.getNodeText(node), 'children:', node.namedChildren.map(c => ({
+                type: c.type,
+                text: this.getNodeText(c)
+            })));
+            return;
+        }
         const vulnType = this.getSinkType(funcName);
         if (!vulnType) return;
 
+        console.log(`Detected sink: ${funcName}, vulnType: ${vulnType}`);
+
         const argsNode = node.childForFieldName('arguments');
         if (argsNode) {
+            console.log(`Arguments for ${funcName}:`, argsNode.namedChildren.map(a => ({
+                type: a.type,
+                text: this.getNodeText(a),
+                children: a.namedChildren.map(c => ({
+                    type: c.type,
+                    text: this.getNodeText(c)
+                }))
+            })));
             for (const arg of argsNode.namedChildren) {
+                // Vérifier les variables directement
                 if (arg.type === 'variable_name') {
                     const argName = this.getNodeText(arg);
                     if (this.taintedVars.has(argName) && !this.sanitizedVars[argName]?.has(vulnType)) {
+                        console.log(`Adding vulnerability for variable: ${argName}`);
                         this.vulnerabilities.push({
                             type: vulnType,
                             sink: funcName,
@@ -137,6 +188,29 @@ export class TaintTracker {
                             trace: `Source tainted: ${argName} → Sink: ${funcName}`,
                             severity: 'error'
                         });
+                    }
+                }
+                // Vérifier les arguments qui contiennent des encapsed_string
+                if (arg.type === 'argument') {
+                    const encapsedString = arg.namedChildren.find(c => c.type === 'encapsed_string');
+                    if (encapsedString) {
+                        for (const child of encapsedString.namedChildren) {
+                            if (child.type === 'variable_name') {
+                                const argName = this.getNodeText(child);
+                                if (this.taintedVars.has(argName) && !this.sanitizedVars[argName]?.has(vulnType)) {
+                                    console.log(`Adding vulnerability for interpolated variable: ${argName}`);
+                                    this.vulnerabilities.push({
+                                        type: vulnType,
+                                        sink: funcName,
+                                        variable: argName,
+                                        line: node.startPosition.row + 1,
+                                        file: filePath,
+                                        trace: `Source tainted: ${argName} → Sink: ${funcName} (interpolated)`,
+                                        severity: 'error'
+                                    });
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -149,8 +223,10 @@ export class TaintTracker {
             const right = node.childForFieldName('right');
             if (left?.type === 'variable_name' && right) {
                 const varName = this.getNodeText(left);
+                console.log(`Assignment: ${varName} = ${this.getNodeText(right)}, isSource: ${this.isSource(right)}`);
                 if (this.isSource(right)) {
                     this.taintedVars.add(varName);
+                    console.log(`Adding unsanitized_source for: ${varName}`);
                     this.vulnerabilities.push({
                         type: 'unsanitized_source',
                         sink: varName,
@@ -162,6 +238,7 @@ export class TaintTracker {
                     });
                 } else if (right.namedChildren.some(c => c.type === 'variable_name' && this.taintedVars.has(this.getNodeText(c)))) {
                     this.taintedVars.add(varName);
+                    console.log(`Adding unsanitized_source (propagation) for: ${varName}`);
                     this.vulnerabilities.push({
                         type: 'unsanitized_source',
                         sink: varName,
@@ -173,17 +250,21 @@ export class TaintTracker {
                     });
                 }
             }
-        } else if (node.type === 'function_call_expression') {
-            const [isFilter, vulnType] = this.isFilterCall(node);
-            if (isFilter) {
-                const args = node.childForFieldName('arguments');
-                if (args && args.namedChildren[0]?.type === 'variable_name') {
-                    const varName = this.getNodeText(args.namedChildren[0]);
-                    this.sanitizedVars[varName] = this.sanitizedVars[varName] || new Set();
-                    this.sanitizedVars[varName].add(vulnType);
+        } else if (node.type === 'expression_statement') {
+            // Chercher function_call_expression dans expression_statement
+            const callNodes = node.namedChildren.filter(c => c.type === 'function_call_expression');
+            for (const callNode of callNodes) {
+                const [isFilter, vulnType] = this.isFilterCall(callNode);
+                if (isFilter) {
+                    const args = callNode.childForFieldName('arguments');
+                    if (args && args.namedChildren[0]?.type === 'variable_name') {
+                        const varName = this.getNodeText(args.namedChildren[0]);
+                        this.sanitizedVars[varName] = this.sanitizedVars[varName] || new Set();
+                        this.sanitizedVars[varName].add(vulnType);
+                    }
+                } else {
+                    this.analyzeSink(callNode, filePath);
                 }
-            } else {
-                this.analyzeSink(node, filePath);
             }
         } else if (node.type === 'binary_expression' && this.isAuthCheck(node)) {
             this.vulnerabilities.push({
@@ -194,23 +275,26 @@ export class TaintTracker {
                 trace: 'Comparaison faible (==) détectée dans une vérification d\'authentification',
                 severity: 'error'
             });
-        } else if (node.type === 'function_call_expression' && this.rules.upload_functions.includes(this.getNodeText(node.childForFieldName('function')!))) {
-            const args = node.childForFieldName('arguments');
-            if (args && args.namedChildren.some(arg => arg.type === 'variable_name' && this.taintedVars.has(this.getNodeText(arg)))) {
-                this.vulnerabilities.push({
-                    type: 'insecure_upload',
-                    sink: 'move_uploaded_file',
-                    line: node.startPosition.row + 1,
-                    file: filePath,
-                    trace: 'Upload de fichier sans validation détectée',
-                    severity: 'error'
-                });
+        } else if (node.type === 'function_call_expression') {
+            const funcName = this.getFunctionName(node);
+            if (funcName && this.rules.upload_functions.includes(funcName)) {
+                const args = node.childForFieldName('arguments');
+                if (args && args.namedChildren.some(arg => arg.type === 'variable_name' && this.taintedVars.has(this.getNodeText(arg)))) {
+                    this.vulnerabilities.push({
+                        type: 'insecure_upload',
+                        sink: 'move_uploaded_file',
+                        line: node.startPosition.row + 1,
+                        file: filePath,
+                        trace: 'Upload de fichier sans validation détectée',
+                        severity: 'error'
+                    });
+                }
             }
         }
 
         inAuthContext = inAuthContext || (
             node.type === 'function_call_expression' &&
-            this.rules.auth_functions.includes(this.getNodeText(node.childForFieldName('function')!))
+            this.rules.auth_functions.includes(this.getFunctionName(node))
         );
 
         for (const child of node.children) {
