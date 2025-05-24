@@ -1,9 +1,9 @@
 import {expect} from 'chai';
 import {TaintTracker} from '../src/taintTracker';
 import {Rules} from '../src/types';
-import Parser = require("tree-sitter");
 
-const treeSitterPhp = require('tree-sitter-php');
+import treeSitterPhp from 'tree-sitter-php';
+import Parser = require("tree-sitter");
 
 // Configuration des règles pour les tests
 const rules: Rules = {
@@ -45,7 +45,7 @@ describe('TaintTracker', () => {
         expect(vulnerabilities.some(v => v.type === 'unsanitized_source' && v.variable === '$id' && v.severity === 'warning')).to.be.true;
     });
 
-    /* it('ne devrait pas détecter de XSS avec désinfection', () => {
+    it('ne devrait pas détecter de XSS avec désinfection', () => {
         const code = `
       <?php
       $input = $_GET['input'];
@@ -175,5 +175,5 @@ describe('TaintTracker', () => {
         const vulnerabilities = tracker.analyze(tree, 'test.php');
         expect(vulnerabilities).to.have.lengthOf(1); // Avertissement pour source non désinfectée
         expect(vulnerabilities.some(v => v.type === 'unsanitized_source' && v.variable === '$input' && v.severity === 'warning')).to.be.true;
-    }); */
+    });
 });
