@@ -10,10 +10,30 @@ export interface Vulnerability {
 
 export interface Rules {
     sources: string[];
-    filters: { [vulnType: string]: string[] };
-    sinks: { [vulnType: string]: string[] };
-    auth_checks: string[];
-    auth_functions: string[];
-    session_functions: string[];
-    upload_functions: string[];
+}
+
+export interface CodeEvent {
+    type: 'assignment' | 'function_call';
+    line: number;
+    file: string;
+    details: AssignmentDetails | FunctionCallDetails;
+}
+
+export interface AssignmentDetails {
+    variable: string;
+    source: string;
+}
+
+export interface FunctionCallDetails {
+    functionName: string;
+    arguments: string[];
+}
+
+export interface TaintFlowEntry {
+    variable: string;
+    source: string;
+    line: number;
+    action: 'assignment' | 'function_parameter';
+    details: string;
+    file: string;
 }

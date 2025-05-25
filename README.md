@@ -49,8 +49,10 @@ L'extension utilise `tree-sitter` et `tree-sitter-php` pour parser le code PHP e
    ```
     - Si une erreur `ERESOLVE` apparaît, vérifie que `package.json` utilise :
       ```json
-      "tree-sitter": "0.21.1",
-      "tree-sitter-php": "^0.22.6"
+      {
+        "tree-sitter": "0.21.1",
+        "tree-sitter-php": "^0.22.6"
+      }
       ```
       Puis réinstalle :
       ```bash
