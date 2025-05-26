@@ -31,15 +31,17 @@ export class TaintAnalyzer {
                         details: `Assigned from ${source}`,
                         file: this.filePath
                     });
-                    this.vulnerabilities.push({
-                        type: 'unsanitized_source',
-                        sink: variable,
-                        variable,
-                        line: event.line,
-                        file: this.filePath,
-                        trace: `Source non désinfectée: ${variable}`,
-                        severity: 'warning'
-                    });
+                    if (this.isVulnerability()) {
+                        this.vulnerabilities.push({
+                            type: 'unsanitized_source',
+                            sink: variable,
+                            variable,
+                            line: event.line,
+                            file: this.filePath,
+                            trace: `Source non désinfectée: ${variable}`,
+                            severity: 'warning'
+                        });
+                    }
                 } else if (this.taintedVars.has(source)) {
                     this.taintedVars.add(variable);
                     console.log(`Adding unsanitized_source (propagation) for: ${variable}`);
@@ -51,15 +53,17 @@ export class TaintAnalyzer {
                         details: `Propagated from tainted variable ${source}`,
                         file: this.filePath
                     });
-                    this.vulnerabilities.push({
-                        type: 'unsanitized_source',
-                        sink: variable,
-                        variable,
-                        line: event.line,
-                        file: this.filePath,
-                        trace: `Propagation de source non désinfectée: ${variable}`,
-                        severity: 'warning'
-                    });
+                    if (this.isVulnerability()) {
+                        this.vulnerabilities.push({
+                            type: 'unsanitized_source',
+                            sink: variable,
+                            variable,
+                            line: event.line,
+                            file: this.filePath,
+                            trace: `Propagation de source non désinfectée: ${variable}`,
+                            severity: 'warning'
+                        });
+                    }
                 }
             } else if (event.type === 'function_call') {
                 const {functionName, arguments: args} = event.details as FunctionCallDetails;
@@ -106,5 +110,9 @@ export class TaintAnalyzer {
     private isSource(text: string): boolean {
         console.log(`Checking if source: ${text}`);
         return text.startsWith('$_GET') || this.rules.sources.includes(text);
+    }
+
+    private isVulnerability(): boolean { // à déplacer...
+        return true;
     }
 }

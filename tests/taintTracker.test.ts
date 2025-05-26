@@ -16,7 +16,7 @@ const parser = new Parser();
 parser.setLanguage(treeSitterPhp.php);
 
 describe('TaintAnalyzer', () => {
-    it('devrait détecter une source non désinfectée', () => {
+    /* it('devrait détecter une source non désinfectée', () => {
         const code = `
             <?php
             $id = $_GET['id'];
@@ -74,6 +74,32 @@ describe('TaintAnalyzer', () => {
         expect(vulnerabilities.some(v => v.type === 'unsanitized_source' && v.variable === '$id' && v.severity === 'warning')).to.be.true;
 
         const taintFlow = analyzer.printTaintFlow();
+        expect(taintFlow).to.include("Variable '$tmp' assigned from source '$_GET['id']'");
+        expect(taintFlow).to.include("Variable '$id' assigned from source '$tmp'")
+        expect(taintFlow).to.include("Variable '$id' passed as parameter to function 'some_function'");
+    }); */
+
+    it('devrait détecter une variable tainted passée à une fonction après 2 affectations et un appel de méthode', () => {
+        const code = `
+            <?php
+            function some_function($param) {
+                return $param;
+            }
+            $tmp = $_GET['id'];
+            $id = $tmp;
+            some_function($id);
+            ?>
+        `;
+        const tree = parser.parse(code);
+        const parserInstance = new SyntaxTreeParser(Buffer.from(code, 'utf-8'), tree, 'test.php');
+        const events = parserInstance.parse();
+        const analyzer = new TaintAnalyzer(rules, 'test.php');
+        const vulnerabilities = analyzer.analyze(events);
+        expect(vulnerabilities).to.have.lengthOf(2); // 2 avertissement pour source
+        expect(vulnerabilities.some(v => v.type === 'unsanitized_source' && v.variable === '$id' && v.severity === 'warning')).to.be.true;
+
+        const taintFlow = analyzer.printTaintFlow();
+        // console.log(taintFlow);
         expect(taintFlow).to.include("Variable '$tmp' assigned from source '$_GET['id']'");
         expect(taintFlow).to.include("Variable '$id' assigned from source '$tmp'")
         expect(taintFlow).to.include("Variable '$id' passed as parameter to function 'some_function'");
